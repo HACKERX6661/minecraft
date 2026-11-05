@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eaglecraft: End Eclipse Edition</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            margin: 0;
+            padding: 0;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        /* Reticle */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 20px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 10;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(255, 255, 255, 0.85);
+            box-shadow: 0 0 4px #000;
+        }
+        #crosshair::before { top: 9px; left: 0; width: 20px; height: 2px; }
+        #crosshair::after { top: 0; left: 9px; width: 2px; height: 20px; }
+
+        /* HUD & Hotbar */
+        #hud {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 6px;
+            background: rgba(15, 10, 25, 0.75);
+            padding: 6px;
+            border: 2px solid #5a3d7a;
+            border-radius: 4px;
+            box-shadow: 0 0 15px rgba(138, 43, 226, 0.4);
+            z-index: 10;
+        }
+        .hotbar-slot {
+            width: 48px;
+            height: 48px;
+            border: 2px solid #332244;
+            background: #110d18;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            cursor: pointer;
+            border-radius: 3px;
+        }
+        .hotbar-slot.active {
+            border-color: #df9bff;
+            box-shadow: inset 0 0 8px #9933ff;
+            transform: scale(1.05);
+        }
+        .hotbar-slot canvas {
+            width: 36px;
+            height: 36px;
+            image-rendering: pixelated;
+        }
+        .slot-num {
+            position: absolute;
+            top: 2px;
+            left: 4px;
+            font-size: 10px;
+            color: #8c73a6;
+            font-weight: bold;
+        }
+
+        /* Overlay Instructions */
+        #screen-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(5, 2, 10, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #e2d3ff;
+            z-index: 100;
+            cursor: pointer;
+            backdrop-filter: blur(5px);
+        }
+        #screen-overlay h1 {
+            font-size: 42px;
+            text-shadow: 0 0 20px #a855f7, 0 0 40px #6b21a8;
+            letter-spacing: 4px;
+            margin-bottom: 12px;
+        }
+        #screen-overlay p {
+            font-size: 16px;
+            color: #bfa8e6;
+            line-height: 1.8;
+            text-align: center;
+        }
+
+        /* Creative Inventory Modal */
+        #creative-menu {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 520px;
+            background: #161022;
+            border: 3px solid #8b5cf6;
+            box-shadow: 0 0 30px rgba(139, 92, 246, 0.6);
+            padding: 20px;
+            z-index: 50;
+            border-radius: 8px;
+        }
+        #creative-menu h2 {
+            color: #c084fc;
+            margin-bottom: 15px;
+            font-size: 18px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            border-bottom: 1px solid #3b2856;
+            padding-bottom: 8px;
+        }
+        .block-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 12px;
+            max-height: 360px;
+            overflow-y: auto;
+        }
+        .grid-item {
+            width: 64px;
+            height: 64px;
+            background: #0d0914;
+            border: 2px solid #3b2d54;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: 0.1s;
+        }
+        .grid-item:hover {
+            border-color: #d8b4fe;
+            background: #251a3a;
+            transform: scale(1.08);
+        }
+        .grid-item canvas {
+            width: 36px;
+            height: 36px;
+            image-rendering: pixelated;
+        }
+        .grid-item span {
+            font-size: 9px;
+            color: #a78bfa;
+            margin-top: 4px;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            width: 58px;
+        }
+
+        /* Stats */
+        #info {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            color: #a855f7;
+            font-size: 13px;
+            z-index: 10;
+            text-shadow: 0 0 5px #000;
+            line-height: 1.5;
+        }
+    </style>
+    <!-- Three.js engine -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="info">
+        FPS: <span id="fps-val">60</span><br>
+        POS: <span id="pos-val">0, 0, 0</span><br>
+        LIGHT: <span style="color:#f3e8ff">TOTAL SOLAR ECLIPSE</span><br>
+        MODE: <span style="color:#4ade80">CREATIVE FLIGHT</span>
+    </div>
+
+    <div id="crosshair"></div>
+
+    <div id="hud"></div>
+
+    <div id="creative-menu">
+        <h2>Creative Block Registry</h2>
+        <div class="block-grid" id="menu-grid"></div>
+    </div>
+
+    <div id="screen-overlay">
+        <h1>THE END : ECLIPSE</h1>
+        <p>
+            Click anywhere to Engage Pointer Lock<br><br>
+            [W, A, S, D] — Move Camera & Fly<br>
+            [SPACE] — Ascend &nbsp;|&nbsp; [L-SHIFT] — Descend<br>
+            [LEFT CLICK] — Mine / Destroy Block<br>
+            [RIGHT CLICK] — Place Selected Block<br>
+            [1 - 9] — Select Hotbar Block Slot<br>
+            [E] — Open Full Creative Palette<br>
+            [R] — Teleport back to Island Core
+        </p>
+    </div>
+
+    <div id="canvas-container"></div>
+
+<script>
+/**
+ * EAGLECRAFT - THE CREATIVE END ECLIPSE
+ * High Performance Voxel Architecture with Custom Corona Shaders
+ */
+
+// --- 1. PROCEDURAL PIXEL TEXTURE GENERATOR ---
+const BlockRegistry = [
+    { id: 1, name: "End Stone", color: "#dedb9b", noise: "#bcba79", emissive: 0x000000 },
+    { id: 2, name: "Obsidian", color: "#14101e", noise: "#3c2262", emissive: 0x000000 },
+    { id: 3, name: "Purpur Block", color: "#a874a8", noise: "#885888", emissive: 0x000000 },
+    { id: 4, name: "Purpur Pillar", color: "#9c689c", noise: "#b882b8", lines: true, emissive: 0x000000 },
+    { id: 5, name: "Ender Core", color: "#134e4a", noise: "#2dd4bf", emissive: 0x14b8a6, glow: true },
+    { id: 6, name: "Crying Obsidian", color: "#180a2a", noise: "#a855f7", emissive: 0x9333ea, glow: true },
+    { id: 7, name: "Eclipse Void", color: "#06030a", noise: "#1e0b36", emissive: 0x3b0764 },
+    { id: 8, name: "Solar Core", color: "#fbbf24", noise: "#f59e0b", emissive: 0xd97706, glow: true },
+    { id: 9, name: "End Rod", color: "#f5f3ff", noise: "#ddd6fe", emissive: 0xffffff, glow: true },
+    { id: 10, name: "Ender Grass", color: "#4c1d95", noise: "#2e1065", emissive: 0x000000 },
+    { id: 11, name: "Bedrock", color: "#262626", noise: "#111111", emissive: 0x000000 },
+    { id: 12, name: "Amethyst Lamp", color: "#701a75", noise: "#f472b6", emissive: 0xdb2777, glow: true }
+];
+
+const textureAtlas = {};
+const blockMaterials = {};
+
+function createVoxelTexture(b) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 16;
+    canvas.height = 16;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = b.color;
+    ctx.fillRect(0, 0, 16, 16);
+
+    // Procedural Per-Pixel Noise
+    for (let x = 0; x < 16; x++) {
+        for (let y = 0; y < 16; y++) {
+            if (Math.random() > 0.45) {
+                ctx.fillStyle = b.noise;
+                ctx.fillRect(x, y, 1, 1);
+            }
+            if (b.lines && (x === 0 || x === 15 || y % 4 === 0)) {
+                ctx.fillStyle = b.noise;
+                ctx.fillRect(x, y, 1, 1);
+            }
+        }
+    }
+    
+    // Borders for 3D Definition
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillRect(0, 15, 16, 1);
+    ctx.fillRect(15, 0, 1, 16);
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(0, 0, 16, 1);
+    ctx.fillRect(0, 0, 1, 16);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    textureAtlas[b.id] = { canvas, texture };
+
+    blockMaterials[b.id] = new THREE.MeshStandardMaterial({
+        map: texture,
+        roughness: b.glow ? 0.2 : 0.85,
+        metalness: b.glow ? 0.1 : 0.05,
+        emissive: b.emissive || 0x000000,
+        emissiveIntensity: b.glow ? 1.6 : 0.0
+    });
+}
+
+BlockRegistry.forEach(createVoxelTexture);
+
+// --- 2. THE TOTAL SOLAR ECLIPSE SHADER SKYBOX ---
+const EclipseSkyShader = {
+    uniforms: {
+        time: { value: 0 },
+        sunDirection: { value: new THREE.Vector3(0.35, 0.55, -0.75).normalize() }
+    },
+    vertexShader: `
+        varying vec3 vWorldPosition;
+        void main() {
+            vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+            vWorldPosition = worldPosition.xyz;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: `
+        varying vec3 vWorldPosition;
+        uniform vec3 sunDirection;
+        uniform float time;
+
+        // Hash function for procedural stars
+        float hash(vec3 p) {
+            p = fract(p * 0.3183099 + 0.1);
+            p *= 17.0;
+            return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+        }
+
+        void main() {
+            vec3 dir = normalize(vWorldPosition);
+            
+            // Deep space void gradient
+            float verticalFactor = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
+            vec3 skyBase = mix(vec3(0.015, 0.005, 0.03), vec3(0.04, 0.01, 0.07), verticalFactor);
+
+            // Procedural Cosmic Stars
+            float starSample = hash(floor(dir * 180.0));
+            if (starSample > 0.985) {
+                float twinkle = sin(time * 3.0 + starSample * 6.28) * 0.5 + 0.5;
+                skyBase += vec3(0.8, 0.7, 1.0) * twinkle * 0.75;
+            }
+
+            // Solar Eclipse Calculation
+            float cosTheta = dot(dir, sunDirection);
+            float angle = acos(clamp(cosTheta, -1.0, 1.0));
+
+            // Moon disc & Sun Corona dynamics
+            float moonRadius = 0.095;
+            float sunRadius = 0.094;
+            
+            // Animated Solar Corona Flares using angular trigonometric noise
+            float coronaNoise = sin(atan(dir.z - sunDirection.z, dir.x - sunDirection.x) * 16.0 + time * 1.5) * 0.006;
+            coronaNoise += cos(atan(dir.y - sunDirection.y, dir.x - sunDirection.x) * 32.0 - time * 2.0) * 0.003;
+
+            if (angle < moonRadius) {
+                // The Black Occulting Moon Body
+                skyBase = vec3(0.0, 0.0, 0.002);
+                // Rim diamond lighting
+                float edge = smoothstep(moonRadius - 0.008, moonRadius, angle);
+                skyBase += vec3(0.3, 0.2, 0.5) * edge * 0.4;
+            } else {
+                // The Corona Ejection Glow
+                float distFromRim = angle - sunRadius + coronaNoise;
+                if (distFromRim < 0.6) {
+                    float intensity = 0.018 / (distFromRim + 0.015);
+                    vec3 coronaColor = mix(vec3(1.0, 0.9, 0.95), vec3(0.63, 0.2, 0.95), distFromRim * 3.5);
+                    skyBase += coronaColor * intensity * 0.8;
+                }
+            }
+
+            // Distant End Nebula Dust
+            float nebula = sin(dir.x * 3.0 + time * 0.2) * cos(dir.z * 3.0) * 0.5 + 0.5;
+            skyBase += vec3(0.12, 0.02, 0.2) * nebula * 0.25;
+
+            gl_FragColor = vec4(skyBase, 1.0);
+        }
+    `
+};
+
+// --- 3. CORE SCENE & RENDERING SETUP ---
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x0c0614, 0.012);
+
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.25;
+container.appendChild(renderer.domElement);
+
+// Instantiate Sky Dome
+const skyGeo = new THREE.SphereGeometry(600, 32, 32);
+const skyMat = new THREE.ShaderMaterial({
+    vertexShader: EclipseSkyShader.vertexShader,
+    fragmentShader: EclipseSkyShader.fragmentShader,
+    uniforms: EclipseSkyShader.uniforms,
+    side: THREE.BackSide,
+    depthWrite: false
+});
+const skyMesh = new THREE.Mesh(skyGeo, skyMat);
+scene.add(skyMesh);
+
+// Eclipse Environmental Lighting
+const ambientLight = new THREE.AmbientLight(0x4a2a68, 0.7);
+scene.add(ambientLight);
+
+const eclipseSunLight = new THREE.DirectionalLight(0xd8b4fe, 1.2);
+eclipseSunLight.position.copy(EclipseSkyShader.uniforms.sunDirection.value).multiplyScalar(100);
+scene.add(eclipseSunLight);
+
+const rimLight = new THREE.DirectionalLight(0x7e22ce, 0.8);
+rimLight.position.set(-100, -20, 100);
+scene.add(rimLight);
+
+// --- 4. VOXEL WORLD ARCHITECTURE & DATA STRUCTURE ---
+const CHUNK_SIZE_X = 54;
+const CHUNK_SIZE_Z = 54;
+const CHUNK_HEIGHT = 38;
+
+const voxelWorld = new Map(); // Spatial Hash: "x,y,z" => { id, meshIndex }
+const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
+
+function posKey(x, y, z) {
+    return `${x},${y},${z}`;
+}
+
+// Hierarchical Grouping for High Performance Raycasting & Management
+const worldGroup = new THREE.Group();
+scene.add(worldGroup);
+
+// Block Mesh Manager: Instanced mesh pooling per block ID
+const MAX_INSTANCES_PER_TYPE = 45000;
+const instancedMeshes = {};
+
+BlockRegistry.forEach(b => {
+    const iMesh = new THREE.InstancedMesh(blockGeometry, blockMaterials[b.id], MAX_INSTANCES_PER_TYPE);
+    iMesh.count = 0;
+    iMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    instancedMeshes[b.id] = iMesh;
+    worldGroup.add(iMesh);
+});
+
+// Coordinate transform matrices
+const dummyMatrix = new THREE.Matrix4();
+const dummyPosition = new THREE.Vector3();
+
+function setBlock(x, y, z, blockId, rebuild = true) {
+    const key = posKey(x, y, z);
+    if (voxelWorld.has(key)) {
+        removeBlock(x, y, z, false);
+    }
+    if (blockId === 0) return;
+
+    const mesh = instancedMeshes[blockId];
+    const index = mesh.count;
+
+    dummyPosition.set(x, y, z);
+    dummyMatrix.setPosition(dummyPosition);
+    mesh.setMatrixAt(index, dummyMatrix);
+
+    voxelWorld.set(key, { id: blockId, index: index, x, y, z });
+    mesh.count++;
+
+    if (rebuild) {
+        mesh.instanceMatrix.needsUpdate = true;
+    }
+}
+
+function removeBlock(x, y, z, rebuild = true) {
+    const key = posKey(x, y, z);
+    if (!voxelWorld.has(key)) return;
+
+    const { id, index } = voxelWorld.get(key);
+    const mesh = instancedMeshes[id];
+    const lastIndex = mesh.count - 1;
+
+    // Fast O(1) Instanced Deletion: Swap with last index
+    if (index !== lastIndex) {
+        mesh.getMatrixAt(lastIndex, dummyMatrix);
+        mesh.setMatrixAt(index, dummyMatrix);
+
+        // Find who occupied the last spot and update reference
+        for (let [k, data] of voxelWorld.entries()) {
+            if (data.id === id && data.index === lastIndex) {
+                data.index = index;
+                break;
+            }
+        }
+    }
+
+    mesh.count--;
+    voxelWorld.delete(key);
+
+    if (rebuild) {
+        mesh.instanceMatrix.needsUpdate = true;
+    }
+}
+
+// --- 5. PROCEDURAL GENERATION: THE END ISLAND & OBSIDIAN SPIKES ---
+function generateEndDimension() {
+    const centerX = 0;
+    const centerZ = 0;
+    const radius = 24;
+
+    for (let x = -radius; x <= radius; x++) {
+        for (let z = -radius; z <= radius; z++) {
+            const dist = Math.sqrt(x * x + z * z);
+            if (dist > radius) continue;
+
+            // Bowl-like inverted parabolic End Island Profile
+            const heightNoise = Math.sin(x * 0.35) * Math.cos(z * 0.35) * 2.5;
+            const islandThickness = Math.max(0, (1.0 - (dist / radius)) * 14.0 + heightNoise);
+
+            for (let y = 0; y < islandThickness; y++) {
+                const worldY = Math.round(y - islandThickness * 0.65);
+                const isSurface = y >= Math.floor(islandThickness - 1);
+
+                let blockType = 1; // End Stone
+                if (isSurface && Math.random() < 0.08) {
+                    blockType = 10; // Ender Grass patch
+                }
+
+                setBlock(x, worldY, z, blockType, false);
+            }
+        }
+    }
+
+    // Generate Obsidian Monolith Pillars & End Crystals
+    const pillarLocations = [
+        { x: 12, z: 12, h: 18 },
+        { x: -12, z: 12, h: 14 },
+        { x: 12, z: -12, h: 22 },
+        { x: -12, z: -12, h: 16 }
+    ];
+
+    pillarLocations.forEach(p => {
+        // Obsidian column
+        for (let y = -2; y < p.h; y++) {
+            for (let ox = -1; ox <= 1; ox++) {
+                for (let oz = -1; oz <= 1; oz++) {
+                    setBlock(p.x + ox, y, p.z + oz, 2, false);
+                }
+            }
+        }
+        // Top Ender Core Crystal
+        setBlock(p.x, p.h, p.z, 5, false);
+        setBlock(p.x, p.h + 1, p.z, 8, false); // Floating solar flare piece
+    });
+
+    // Notify GPU memory buffers
+    Object.values(instancedMeshes).forEach(m => m.instanceMatrix.needsUpdate = true);
+}
+
+generateEndDimension();
+
+// Block Outline Highlight Box
+const highlightBox = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(1.005, 1.005, 1.005)),
+    new THREE.LineBasicMaterial({ color: 0xe9d5ff, linewidth: 2 })
+);
+highlightBox.visible = false;
+scene.add(highlightBox);
+
+// --- 6. BREAKING PARTICLE FX SYSTEM ---
+const particleGeo = new THREE.BoxGeometry(0.12, 0.12, 0.12);
+const particles = [];
+
+function spawnBreakParticles(x, y, z, blockId) {
+    const mat = blockMaterials[blockId] || blockMaterials[1];
+    for (let i = 0; i < 8; i++) {
+        const p = new THREE.Mesh(particleGeo, mat);
+        p.position.set(
+            x + (Math.random() - 0.5) * 0.8,
+            y + (Math.random() - 0.5) * 0.8,
+            z + (Math.random() - 0.5) * 0.8
+        );
+        p.userData.velocity = new THREE.Vector3(
+            (Math.random() - 0.5) * 4.0,
+            Math.random() * 5.0 + 1.0,
+            (Math.random() - 0.5) * 4.0
+        );
+        p.userData.life = 1.0;
+        scene.add(p);
+        particles.push(p);
+    }
+}
+
+function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.userData.life -= dt * 2.2;
+        p.userData.velocity.y -= 9.8 * dt; // Gravity
+        p.position.addScaledVector(p.userData.velocity, dt);
+
+        if (p.userData.life <= 0) {
+            scene.remove(p);
+            particles.splice(i, 1);
+        }
+    }
+}
+
+// --- 7. FIRST-PERSON SMOOTH CONTROLS & CAMERA ---
+camera.position.set(0, 12, 28);
+
+const player = {
+    velocity: new THREE.Vector3(),
+    rotation: new THREE.Euler(0, 0, 0, 'YXZ'),
+    speed: 24.0,
+    activeSlot: 0,
+    hotbar: [1, 2, 3, 4, 5, 6, 8, 9, 12] // 9 Hotbar slots
+};
+
+const keys = {};
+let isLocked = false;
+let isMenuOpen = false;
+
+document.addEventListener('keydown', (e) => {
+    keys[e.code] = true;
+
+    // Number keys for hotbar
+    if (e.code.startsWith('Digit')) {
+        const num = parseInt(e.code.replace('Digit', '')) - 1;
+        if (num >= 0 && num < 9) {
+            selectSlot(num);
+        }
+    }
+
+    // Toggle Creative Menu
+    if (e.code === 'KeyE') {
+        toggleCreativeMenu();
+    }
+
+    // Respawn / Center reset
+    if (e.code === 'KeyR') {
+        camera.position.set(0, 10, 20);
+        player.velocity.set(0, 0, 0);
+    }
+});
+
+document.addEventListener('keyup', (e) => {
+    keys[e.code] = false;
+});
+
+// Mouse look
+document.addEventListener('mousemove', (e) => {
+    if (!isLocked || isMenuOpen) return;
+    const sens = 0.0022;
+    player.rotation.y -= e.movementX * sens;
+    player.rotation.x -= e.movementY * sens;
+    player.rotation.x = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, player.rotation.x));
+});
+
+// Pointer Lock interaction
+const overlay = document.getElementById('screen-overlay');
+overlay.addEventListener('click', () => {
+    container.requestPointerLock();
+});
+
+document.addEventListener('pointerlockchange', () => {
+    isLocked = document.pointerLockElement === container;
+    overlay.style.display = isLocked || isMenuOpen ? 'none' : 'flex';
+});
+
+// --- 8. VOXEL RAYCASTING ENGINE (MINING & PLACEMENT) ---
+const raycaster = new THREE.Raycaster();
+raycaster.far = 10.0;
+const screenCenter = new THREE.Vector2(0, 0);
+
+function getTargetedVoxel() {
+    raycaster.setFromCamera(screenCenter, camera);
+    const intersects = raycaster.intersectObjects(Object.values(instancedMeshes));
+
+    if (intersects.length > 0) {
+        const hit = intersects[0];
+        const instanceId = hit.instanceId;
+        const mesh = hit.object;
+
+        // Retrieve World coordinates by reverse searching
+        for (let [key, data] of voxelWorld.entries()) {
+            if (instancedMeshes[data.id] === mesh && data.index === instanceId) {
+                // Calculate normal offset for placement
+                const hitNormal = hit.face.normal.clone().transformDirection(mesh.matrixWorld).round();
+                return {
+                    x: data.x,
+                    y: data.y,
+                    z: data.z,
+                    id: data.id,
+                    faceNormal: hitNormal
+                };
+            }
+        }
+    }
+    return null;
+}
+
+window.addEventListener('mousedown', (e) => {
+    if (!isLocked || isMenuOpen) return;
+    const target = getTargetedVoxel();
+
+    if (e.button === 0) { // Left Click: Destroy
+        if (target) {
+            spawnBreakParticles(target.x, target.y, target.z, target.id);
+            removeBlock(target.x, target.y, target.z);
+        }
+    } else if (e.button === 2) { // Right Click: Place
+        if (target) {
+            const placeX = target.x + target.faceNormal.x;
+            const placeY = target.y + target.faceNormal.y;
+            const placeZ = target.z + target.faceNormal.z;
+
+            // Prevent placing directly inside player head/eyes
+            const dToCam = camera.position.distanceTo(new THREE.Vector3(placeX, placeY, placeZ));
+            if (dToCam > 0.85) {
+                const currentBlockId = player.hotbar[player.activeSlot];
+                setBlock(placeX, placeY, placeZ, currentBlockId);
+            }
+        }
+    }
+});
+
+// Suppress right-click context menu
+window.addEventListener('contextmenu', e => e.preventDefault());
+
+// --- 9. CREATIVE HUD & INVENTORY PALETTE UI ---
+const hudContainer = document.getElementById('hud');
+const menuGrid = document.getElementById('menu-grid');
+
+function initHUD() {
+    hudContainer.innerHTML = '';
+    player.hotbar.forEach((blockId, idx) => {
+        const slot = document.createElement('div');
+        slot.className = `hotbar-slot ${idx === player.activeSlot ? 'active' : ''}`;
+        slot.onclick = () => selectSlot(idx);
+
+        const slotNumber = document.createElement('div');
+        slotNumber.className = 'slot-num';
+        slotNumber.innerText = idx + 1;
+        slot.appendChild(slotNumber);
+
+        if (textureAtlas[blockId]) {
+            const icon = document.createElement('canvas');
+            icon.width = 16;
+            icon.height = 16;
+            const ictx = icon.getContext('2d');
+            ictx.drawImage(textureAtlas[blockId].canvas, 0, 0);
+            slot.appendChild(icon);
+        }
+        hudContainer.appendChild(slot);
+    });
+}
+
+function selectSlot(idx) {
+    player.activeSlot = idx;
+    document.querySelectorAll('.hotbar-slot').forEach((el, i) => {
+        el.classList.toggle('active', i === idx);
+    });
+}
+
+function initCreativeMenu() {
+    menuGrid.innerHTML = '';
+    BlockRegistry.forEach(b => {
+        const item = document.createElement('div');
+        item.className = 'grid-item';
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = 16;
+        canvas.height = 16;
+        canvas.getContext('2d').drawImage(textureAtlas[b.id].canvas, 0, 0);
+
+        const name = document.createElement('span');
+        name.innerText = b.name;
+
+        item.appendChild(canvas);
+        item.appendChild(name);
+
+        item.onclick = () => {
+            player.hotbar[player.activeSlot] = b.id;
+            initHUD();
+            toggleCreativeMenu();
+            container.requestPointerLock();
+        };
+
+        menuGrid.appendChild(item);
+    });
+}
+
+const creativeMenuModal = document.getElementById('creative-menu');
+function toggleCreativeMenu() {
+    isMenuOpen = !isMenuOpen;
+    if (isMenuOpen) {
+        document.exitPointerLock();
+        creativeMenuModal.style.display = 'block';
+    } else {
+        creativeMenuModal.style.display = 'none';
+        container.requestPointerLock();
+    }
+}
+
+initHUD();
+initCreativeMenu();
+
+// --- 10. ULTRA-SMOOTH FLIGHT KINEMATICS & MAIN LOOP ---
+let clock = new THREE.Clock();
+let fpsCounter = 0;
+let lastFpsTime = 0;
+const fpsValEl = document.getElementById('fps-val');
+const posValEl = document.getElementById('pos-val');
+
+function updatePhysics(dt) {
+    if (!isLocked) return;
+
+    // Camera Rotation Lerp
+    camera.quaternion.setFromEuler(player.rotation);
+
+    // Compute Local Movement Vectors
+    const moveVector = new THREE.Vector3();
+    if (keys['KeyW']) moveVector.z -= 1;
+    if (keys['KeyS']) moveVector.z += 1;
+    if (keys['KeyA']) moveVector.x -= 1;
+    if (keys['KeyD']) moveVector.x += 1;
+    moveVector.normalize();
+
+    // Flight Vertical Movement
+    let verticalMove = 0;
+    if (keys['Space']) verticalMove += 1;
+    if (keys['ShiftLeft'] || keys['ShiftRight']) verticalMove -= 1;
+
+    // Smooth Creative Flight Acceleration & Deceleration (Friction lerping)
+    const targetVel = new THREE.Vector3();
+    if (moveVector.length() > 0) {
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const sideways = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+        targetVel.addScaledVector(forward, -moveVector.z * player.speed);
+        targetVel.addScaledVector(sideways, moveVector.x * player.speed);
+    }
+    targetVel.y += verticalMove * player.speed;
+
+    // Lerp Current Velocity towards Target
+    player.velocity.lerp(targetVel, dt * 10.0);
+    camera.position.addScaledVector(player.velocity, dt);
+
+    // Void Teleport Safety Net
+    if (camera.position.y < -35) {
+        camera.position.set(0, 15, 25);
+        player.velocity.set(0, 0, 0);
+    }
+}
+
+function updateHighlight() {
+    const target = getTargetedVoxel();
+    if (target) {
+        highlightBox.position.set(target.x, target.y, target.z);
+        highlightBox.visible = true;
+    } else {
+        highlightBox.visible = false;
+    }
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+
+    const dt = Math.min(clock.getDelta(), 0.1);
+    const elapsedTime = clock.getElapsedTime();
+
+    // Update Eclipse Shader Animation
+    EclipseSkyShader.uniforms.time.value = elapsedTime;
+
+    // Movement, Particles & Highlights
+    updatePhysics(dt);
+    updateParticles(dt);
+    updateHighlight();
+
+    // Render Scene
+    renderer.render(scene, camera);
+
+    // Real-time HUD diagnostics
+    fpsCounter++;
+    if (elapsedTime - lastFpsTime >= 1.0) {
+        fpsValEl.innerText = fpsCounter;
+        fpsCounter = 0;
+        lastFpsTime = elapsedTime;
+    }
+    posValEl.innerText = `${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)}`;
+}
+
+// Window Resize Handler
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// Launch loop
+animate();
+</script>
+</body>
+</html>
